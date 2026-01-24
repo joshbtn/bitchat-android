@@ -58,6 +58,10 @@ object AppConstants {
         const val HIGH_NONCE_WARNING_THRESHOLD: Long = 1_000_000_000L
     }
 
+    object Verification {
+        const val QR_MAX_AGE_SECONDS: Long = 300L // 5 minutes
+    }
+
     object Protocol {
         const val COMPRESSION_THRESHOLD_BYTES: Int = 100
     }
@@ -76,9 +80,9 @@ object AppConstants {
         const val SCAN_ON_DURATION_NORMAL_MS: Long = 8_000L
         const val SCAN_OFF_DURATION_NORMAL_MS: Long = 2_000L
         const val SCAN_ON_DURATION_POWER_SAVE_MS: Long = 2_000L
-        const val SCAN_OFF_DURATION_POWER_SAVE_MS: Long = 8_000L
+        const val SCAN_OFF_DURATION_POWER_SAVE_MS: Long = 28_000L
         const val SCAN_ON_DURATION_ULTRA_LOW_MS: Long = 1_000L
-        const val SCAN_OFF_DURATION_ULTRA_LOW_MS: Long = 10_000L
+        const val SCAN_OFF_DURATION_ULTRA_LOW_MS: Long = 29_000L
         const val MAX_CONNECTIONS_NORMAL: Int = 8
         const val MAX_CONNECTIONS_POWER_SAVE: Int = 8
         const val MAX_CONNECTIONS_ULTRA_LOW: Int = 4
