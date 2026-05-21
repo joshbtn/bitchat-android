@@ -3,6 +3,10 @@ package com.bitchat.android.ui
 import android.app.Application
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.DefaultLifecycleObserver
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.ProcessLifecycleOwner
 import androidx.lifecycle.viewModelScope
 import com.bitchat.android.nostr.GeohashMessageHandler
 import com.bitchat.android.nostr.GeohashRepository
@@ -22,6 +26,8 @@ import java.util.Date
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.Dispatchers
+import java.security.SecureRandom
+import kotlin.random.asKotlinRandom
 
 class GeohashViewModel(
     application: Application,
@@ -31,9 +37,12 @@ class GeohashViewModel(
     private val meshDelegateHandler: MeshDelegateHandler,
     private val dataManager: DataManager,
     private val notificationManager: NotificationManager
-) : AndroidViewModel(application) {
+) : AndroidViewModel(application), DefaultLifecycleObserver {
 
-    companion object { private const val TAG = "GeohashViewModel" }
+    companion object { 
+        private const val TAG = "GeohashViewModel" 
+        private val secureRandom = SecureRandom().asKotlinRandom()
+    }
 
     private val repo = GeohashRepository(application, state, dataManager)
     private val subscriptionManager = NostrSubscriptionManager(application, viewModelScope)
@@ -68,6 +77,10 @@ class GeohashViewModel(
 
     fun initialize() {
         subscriptionManager.connect()
+        // Observe process lifecycle to manage background sampling
+        kotlin.runCatching {
+            ProcessLifecycleOwner.get().lifecycle.addObserver(this)
+        }
         val identity = NostrIdentityBridge.getCurrentNostrIdentity(getApplication())
         if (identity != null) {
             // Use global chat-messages only for full account DMs (mesh context). For geohash DMs, subscribe per-geohash below.
@@ -115,14 +128,14 @@ class GeohashViewModel(
                     // If channels change (e.g. user moves), collectLatest cancels this loop and starts a new one immediately
                     while (true) {
                         // Randomize loop interval (40-80s, average 60s)
-                        val loopInterval = kotlin.random.Random.nextLong(40000L, 80000L)
+                        val loopInterval = secureRandom.nextLong(40000L, 80000L)
                         var timeSpent = 0L
 
                         try {
                             Log.v(TAG, "💓 Broadcasting global presence to ${targetGeohashes.size} channels")
                             targetGeohashes.forEach { geohash ->
                                 // Decorrelate individual broadcasts with random delay (1s-5s)
-                                val stepDelay = kotlin.random.Random.nextLong(1000L, 10000L)
+                                val stepDelay = secureRandom.nextLong(1000L, 10000L)
                                 delay(stepDelay)
                                 timeSpent += stepDelay
                                 
@@ -235,15 +248,11 @@ class GeohashViewModel(
         }
 
         // Add new subscriptions
-        toAdd.forEach { geohash ->
-            subscriptionManager.subscribeGeohash(
-                geohash = geohash,
-                sinceMs = System.currentTimeMillis() - 86400000L,
-                limit = 200,
-                id = "sampling-$geohash",
-                handler = { event -> geohashMessageHandler.onEvent(event, geohash) }
-            )
-            activeSamplingGeohashes.add(geohash)
+        activeSamplingGeohashes.addAll(toAdd)
+        if (isAppInForeground()) {
+            toAdd.forEach { geohash ->
+                performSubscribeSampling(geohash)
+            }
         }
     }
 
@@ -271,6 +280,25 @@ class GeohashViewModel(
         }
         onStartPrivateChat(convKey)
         Log.d(TAG, "🗨️ Started geohash DM with ${pubkeyHex} -> ${convKey} (geohash=${gh})")
+    }
+
+    fun startGeohashDMByNickname(nickname: String, onStartPrivateChat: (String) -> Unit) {
+        val pubkey = repo.findPubkeyByNickname(nickname)
+        if (pubkey != null) {
+            startGeohashDM(pubkey, onStartPrivateChat)
+        } else {
+            Log.w(TAG, "Cannot start geohash DM: nickname '$nickname' not found in repo")
+            // Optionally notify user
+        }
+    }
+
+    fun startGeohashDMByShortId(shortId: String, onStartPrivateChat: (String) -> Unit) {
+        val pubkey = repo.findPubkeyByShortId(shortId)
+        if (pubkey != null) {
+            startGeohashDM(pubkey, onStartPrivateChat)
+        } else {
+             Log.w(TAG, "Cannot start geohash DM: shortId '$shortId' not found in repo")
+        }
     }
 
     fun getNostrKeyMapping(): Map<String, String> = repo.getNostrKeyMapping()
@@ -378,5 +406,36 @@ class GeohashViewModel(
                 repo.refreshGeohashPeople()
             }
         }
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        kotlin.runCatching {
+            ProcessLifecycleOwner.get().lifecycle.removeObserver(this)
+        }
+    }
+
+    override fun onStart(owner: LifecycleOwner) {
+        Log.d(TAG, "🌍 App foregrounded: Resuming sampling for ${activeSamplingGeohashes.size} geohashes")
+        activeSamplingGeohashes.forEach { performSubscribeSampling(it) }
+    }
+
+    override fun onStop(owner: LifecycleOwner) {
+        Log.d(TAG, "🌍 App backgrounded: Pausing sampling for ${activeSamplingGeohashes.size} geohashes")
+        activeSamplingGeohashes.forEach { subscriptionManager.unsubscribe("sampling-$it") }
+    }
+
+    private fun performSubscribeSampling(geohash: String) {
+        subscriptionManager.subscribeGeohash(
+            geohash = geohash,
+            sinceMs = System.currentTimeMillis() - 86400000L,
+            limit = 200,
+            id = "sampling-$geohash",
+            handler = { event -> geohashMessageHandler.onEvent(event, geohash) }
+        )
+    }
+
+    private fun isAppInForeground(): Boolean {
+        return ProcessLifecycleOwner.get().lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)
     }
 }

@@ -1046,7 +1046,7 @@ class ChatViewModel(
      * End geohash sampling
      */
     fun endGeohashSampling() {
-        // No-op in refactored architecture; sampling subscriptions are short-lived
+        geohashViewModel.endGeohashSampling()
     }
 
     /**
@@ -1061,6 +1061,18 @@ class ChatViewModel(
      */
     fun startGeohashDM(pubkeyHex: String) {
         geohashViewModel.startGeohashDM(pubkeyHex) { convKey ->
+            showPrivateChatSheet(convKey)
+        }
+    }
+
+    fun startGeohashDMByNickname(nickname: String) {
+        geohashViewModel.startGeohashDMByNickname(nickname) { convKey ->
+            showPrivateChatSheet(convKey)
+        }
+    }
+
+    fun startGeohashDMByShortId(shortId: String) {
+        geohashViewModel.startGeohashDMByShortId(shortId) { convKey ->
             showPrivateChatSheet(convKey)
         }
     }
